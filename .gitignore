@@ -1,0 +1,41 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Models — too large for git (use Git LFS or document separately)
+core/models/*.h5
+core/models/*.onnx
+core/models/*.bin
+core/models/*.keras
+core/models/saved_model_v3/
+
+# Raw dataset — 31GB, never push
+data/raw/
+
+# Generated sequence files — large, reproducible from scripts
+data/sequences/
+data/processed/
+data/splits/
+
+# Runtime files
+logs/
+*.etl
+*.etl.tmp
+
+# Trace files
+C:/traces/
+
+# Environment
+.env
+*.env
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+desktop.ini

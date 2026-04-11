@@ -1,0 +1,14 @@
+<group name="nesrd,ransomware,">
+  <rule id="110001" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="decision">ALERT</field>
+    <description>NESRD: Ransomware behavior detected - ALERT</description>
+    <mitre><id>T1486</id></mitre>
+  </rule>
+  <rule id="110002" level="15">
+    <decoded_as>json</decoded_as>
+    <field name="decision">ISOLATE</field>
+    <description>NESRD: Ransomware detected - ISOLATE endpoint immediately</description>
+    <mitre><id>T1486</id></mitre>
+  </rule>
+</group>

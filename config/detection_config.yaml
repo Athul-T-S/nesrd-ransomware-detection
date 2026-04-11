@@ -1,0 +1,72 @@
+# NESRD - Early Stage Ransomware Detector
+# Detection Manager Configuration
+
+# Network
+manager:
+  host: "10.0.0.1"
+  port: 50051
+  tls: false
+
+# Detection thresholds
+thresholds:
+  critical: 0.85        # auto-isolate endpoint
+  warning: 0.60         # send to SOC queue
+  log_only: 0.0         # everything below warning just gets logged
+
+# Fusion weights
+fusion:
+  file_io_weight: 0.70
+  network_weight: 0.30
+
+# Sliding window settings
+window:
+  size: 256             # number of events per window
+  step: 50              # emit a window every 50 new events
+
+# Hard tripwires - fire immediately regardless of ML score
+tripwires:
+  vss_delete: true
+  bcdedit_disable: true
+  rapid_rename_threshold: 50
+  rapid_rename_window_sec: 10
+  ransom_note_patterns:
+    - "README_DECRYPT"
+    - "HOW_TO_RECOVER"
+    - "YOUR_FILES_ARE_ENCRYPTED"
+    - "DECRYPT_INSTRUCTIONS"
+    - "RESTORE_FILES"
+
+# File extensions to monitor
+monitored_extensions:
+  - .docx
+  - .xlsx
+  - .pdf
+  - .jpg
+  - .png
+  - .db
+  - .sql
+  - .bak
+  - .zip
+  - .pptx
+  - .txt
+  - .csv
+
+# Process allowlist - these processes are never flagged
+allowlist:
+  processes:
+    - MsMpEng.exe
+    - svchost.exe
+    - WmiPrvSE.exe
+    - TrustedInstaller.exe
+    - SearchIndexer.exe
+    - WindowsDefender.exe
+  paths:
+    - "C:\\Windows\\"
+    - "C:\\Program Files\\Windows Defender\\"
+    - "C:\\ProgramData\\Microsoft\\Windows Defender\\"
+
+# Logging
+logging:
+  level: "INFO"
+  log_file: "logs\\nesrd.log"
+  max_size_mb: 50
