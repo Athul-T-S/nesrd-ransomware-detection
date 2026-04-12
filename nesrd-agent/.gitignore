@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Runtime
+logs/
+*.etl
+*.csv
+*.etl.tmp
+
+# Windows
+Thumbs.db
+desktop.ini

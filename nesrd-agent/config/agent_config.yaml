@@ -1,0 +1,42 @@
+# NESRD Agent Configuration
+
+manager:
+  host: "10.0.0.1"
+  port: 50051
+
+agent:
+  id: "vm-win10-001"
+  ip: "10.0.0.8"
+  heartbeat_interval_sec: 30
+
+window:
+  size: 256
+  step: 50
+
+# Extensions to monitor
+monitored_extensions:
+  - .docx
+  - .xlsx
+  - .pdf
+  - .jpg
+  - .png
+  - .db
+  - .sql
+  - .bak
+  - .zip
+  - .pptx
+  - .txt
+  - .csv
+
+# Paths to ignore
+ignored_paths:
+  - "C:\\Windows\\"
+  - "C:\\Program Files\\Windows Defender\\"
+  - "C:\\ProgramData\\Microsoft\\"
+
+# Processes to ignore
+ignored_processes:
+  - MsMpEng.exe
+  - svchost.exe
+  - SearchIndexer.exe
+  - WmiPrvSE.exe
