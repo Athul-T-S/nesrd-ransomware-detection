@@ -9,8 +9,8 @@ manager:
 
 # Detection thresholds
 thresholds:
-  critical: 0.85        # auto-isolate endpoint
-  warning: 0.60         # send to SOC queue
+  critical: 0.65        # auto-isolate endpoint
+  warning: 0.50         # send to SOC queue
   log_only: 0.0         # everything below warning just gets logged
 
 # Fusion weights
