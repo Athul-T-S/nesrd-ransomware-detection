@@ -19,8 +19,8 @@ class FusionEngine:
         base = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))
         ))
-        onnx_path  = os.path.join(base, "core", "models", "ransomware_detector_v3.onnx")
-        embed_path = os.path.join(base, "core", "models", "ransap_embeddings_v3.bin")
+        onnx_path  = os.path.join(base, "core", "models", "ransomware_detector_logman_v1.onnx")
+        embed_path = os.path.join(base, "core", "models", "logman_embeddings_v1.bin")
 
         # Load FastText
         logger.info(f"Loading FastText model from {embed_path}")
@@ -39,45 +39,30 @@ class FusionEngine:
         logger.info("FusionEngine initialized with ONNX inference")
 
     def _events_to_tokens(self, events):
-        """Convert proto FileEvent objects to RanSAP-style tokens."""
-        tokens     = []
-        lba_values = []
+        """Convert proto FileEvent objects to logman-style tokens."""
+        tokens = []
 
         for event in events:
             op = event.operation.upper()
-            if op not in ["WRITE", "CREATE"]:
+
+            if op not in ["CREATE", "WRITE", "DELETE", "RENAME",
+                          "READ", "SET_INFO"]:
                 continue
 
-            size = event.bytes
-            if size <= 512:
-                size_class = "TINY"
-            elif size <= 2048:
-                size_class = "SMALL"
-            else:
-                size_class = "LARGE"
-
+            # Extension-based entropy class
             ext = event.file_extension.lower()
             if ext in [".enc", ".locked", ".crypt", ".encrypted"]:
                 entropy_class = "ENCRYPTED"
-            elif ext in [".jpg", ".mp4", ".zip", ".png"]:
+            elif ext in [".jpg", ".png", ".zip", ".mp4", ".avi"]:
                 entropy_class = "HIGH_ENT"
-            elif ext in [".docx", ".xlsx", ".pdf"]:
+            elif ext in [".docx", ".xlsx", ".pdf", ".pptx"]:
                 entropy_class = "MED_ENT"
-            elif ext in [".txt", ".log", ".csv"]:
+            elif ext in [".txt", ".log", ".csv", ".ini"]:
                 entropy_class = "LOW_ENT"
             else:
                 entropy_class = "NORMAL_ENT"
 
-            lba_values.append(len(lba_values))
-            if len(lba_values) > 2:
-                diffs  = [abs(lba_values[i+1] - lba_values[i])
-                          for i in range(len(lba_values)-1)]
-                avg    = sum(diffs) / len(diffs)
-                access = "SEQ" if avg < 2 else "RAND"
-            else:
-                access = "RAND"
-
-            token = f"WRITE_{size_class}_{entropy_class}_{access}"
+            token = f"{op}_LARGE_{entropy_class}_RAND"
             tokens.append(token)
 
         return tokens

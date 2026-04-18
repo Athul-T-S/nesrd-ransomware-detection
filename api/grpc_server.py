@@ -11,7 +11,7 @@ from datetime import datetime
 import api.nesrd_pb2 as pb2
 import api.nesrd_pb2_grpc as pb2_grpc
 from core.fusion.fusion_engine import FusionEngine
-from core.fusion.tripwires import TripwireEngine
+from core.fusion.tripwires import TripwireEngine, get_process_name, ALLOWLISTED_PROCESSES
 from api.alert_service import AlertService
 
 
@@ -33,7 +33,7 @@ def get_dominant_pid(events):
     for event in events:
         try:
             pid = int(event.process_id)
-            if pid > 4:  # skip system processes
+            if pid > 4:
                 pid_counts[pid] = pid_counts.get(pid, 0) + 1
         except (ValueError, TypeError):
             continue
@@ -62,6 +62,10 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
         peer = context.peer()
         logger.info(f"Agent connected: {peer}")
 
+        # Track isolated agents per connection — once isolated,
+        # stop processing windows to avoid duplicate ISOLATE orders
+        isolated_agents = set()
+
         try:
             for window in request_iterator:
                 agent_id   = window.agent_id
@@ -74,6 +78,13 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                     "session":   session_id
                 }
 
+                # Skip processing if agent already isolated
+                if agent_id in isolated_agents:
+                    logger.debug(
+                        f"[{agent_id}] Already isolated — skipping window"
+                    )
+                    continue
+
                 logger.info(
                     f"[{agent_id}] Received window | "
                     f"session={session_id} | "
@@ -83,9 +94,35 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                 # Get dominant PID for this window
                 dominant_pid = get_dominant_pid(events)
 
+                # Skip ML entirely if dominant process is allowlisted
+                # Prevents false positives from explorer.exe, svchost.exe etc.
+                if dominant_pid > 4:
+                    proc_name = get_process_name(dominant_pid)
+                    if proc_name in ALLOWLISTED_PROCESSES:
+                        logger.debug(
+                            f"[{agent_id}] Skipping — allowlisted: "
+                            f"{proc_name} (PID={dominant_pid})"
+                        )
+                        yield pb2.DetectionResult(
+                            session_id      = session_id,
+                            confidence      = 0.0,
+                            decision        = "LOG",
+                            mitre_technique = "",
+                            reason          = f"Allowlisted: {proc_name}",
+                            timestamp_ms    = int(
+                                datetime.now().timestamp() * 1000
+                            ),
+                            process_id      = dominant_pid
+                        )
+                        continue
+
                 # Step 1 — Check hard tripwires first
                 tripwire_result = self.tripwires.check(events)
                 if tripwire_result["triggered"]:
+
+                    # Mark agent as isolated — no more processing
+                    isolated_agents.add(agent_id)
+
                     logger.warning(
                         f"[{agent_id}] TRIPWIRE triggered: "
                         f"{tripwire_result['reason']} | "
@@ -112,6 +149,10 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
 
                 # Step 2 — Run fusion engine
                 decision, confidence, reason = self.fusion.decide(events)
+
+                # Mark as isolated if ML triggers ISOLATE
+                if decision == "ISOLATE":
+                    isolated_agents.add(agent_id)
 
                 logger.info(
                     f"[{agent_id}] Decision={decision} | "
