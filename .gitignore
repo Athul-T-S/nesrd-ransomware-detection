@@ -12,6 +12,7 @@ core/models/*.onnx
 core/models/*.bin
 core/models/*.keras
 core/models/saved_model_v3/
+core/models/saved_model*/
 
 # Raw dataset — 31GB, never push
 data/raw/
@@ -39,3 +40,23 @@ C:/traces/
 # Windows
 Thumbs.db
 desktop.ini
+
+# Proto generated files — reproducible from .proto source
+api/nesrd_pb2.py
+api/nesrd_pb2_grpc.py
+nesrd-agent/proto/*_pb2.py
+nesrd-agent/proto/*_pb2_grpc.py
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Temp
+*.tmp
+*.bak
+~$*
