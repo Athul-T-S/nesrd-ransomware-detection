@@ -11,7 +11,7 @@ from datetime import datetime
 import api.nesrd_pb2 as pb2
 import api.nesrd_pb2_grpc as pb2_grpc
 from core.fusion.fusion_engine import FusionEngine
-from core.fusion.tripwires import TripwireEngine, get_process_name, ALLOWLISTED_PROCESSES
+from core.fusion.tripwires import TripwireEngine, ALLOWLISTED_PROCESSES
 from api.alert_service import AlertService
 
 
@@ -44,6 +44,21 @@ def get_dominant_pid(events):
     return max(pid_counts, key=pid_counts.get)
 
 
+def get_dominant_proc_name(events, dominant_pid):
+    """
+    Extract process name from ETW events directly.
+    The agent already sends process_name in each FileEvent —
+    no need to call tasklist on the host which has no VM visibility.
+    """
+    for event in events:
+        try:
+            if int(event.process_id) == dominant_pid and event.process_name:
+                return event.process_name.lower()
+        except (ValueError, TypeError):
+            continue
+    return ""
+
+
 class NESRDServicer(pb2_grpc.NESRDServiceServicer):
 
     def __init__(self, config):
@@ -62,8 +77,8 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
         peer = context.peer()
         logger.info(f"Agent connected: {peer}")
 
-        # Track isolated agents per connection — once isolated,
-        # stop processing windows to avoid duplicate ISOLATE orders
+        # Track isolated agents — once isolated, stop processing
+        # to avoid duplicate ISOLATE orders
         isolated_agents = set()
 
         try:
@@ -72,9 +87,12 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                 session_id = window.session_id
                 events     = window.events
 
+                # Record window received time for response time measurement
+                window_received = datetime.now()
+
                 self.connected_agents[agent_id] = {
                     "ip":        window.agent_ip,
-                    "last_seen": datetime.now().isoformat(),
+                    "last_seen": window_received.isoformat(),
                     "session":   session_id
                 }
 
@@ -91,30 +109,30 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                     f"events={len(events)}"
                 )
 
-                # Get dominant PID for this window
-                dominant_pid = get_dominant_pid(events)
+                # Get dominant PID and process name directly from events
+                # process_name is sent by agent in each FileEvent proto field
+                dominant_pid  = get_dominant_pid(events)
+                dominant_proc = get_dominant_proc_name(events, dominant_pid) if dominant_pid > 4 else ""
 
                 # Skip ML entirely if dominant process is allowlisted
                 # Prevents false positives from explorer.exe, svchost.exe etc.
-                if dominant_pid > 4:
-                    proc_name = get_process_name(dominant_pid)
-                    if proc_name in ALLOWLISTED_PROCESSES:
-                        logger.debug(
-                            f"[{agent_id}] Skipping — allowlisted: "
-                            f"{proc_name} (PID={dominant_pid})"
-                        )
-                        yield pb2.DetectionResult(
-                            session_id      = session_id,
-                            confidence      = 0.0,
-                            decision        = "LOG",
-                            mitre_technique = "",
-                            reason          = f"Allowlisted: {proc_name}",
-                            timestamp_ms    = int(
-                                datetime.now().timestamp() * 1000
-                            ),
-                            process_id      = dominant_pid
-                        )
-                        continue
+                if dominant_pid > 4 and dominant_proc in ALLOWLISTED_PROCESSES:
+                    logger.debug(
+                        f"[{agent_id}] Skipping — allowlisted: "
+                        f"{dominant_proc} (PID={dominant_pid})"
+                    )
+                    yield pb2.DetectionResult(
+                        session_id      = session_id,
+                        confidence      = 0.0,
+                        decision        = "LOG",
+                        mitre_technique = "",
+                        reason          = f"Allowlisted: {dominant_proc}",
+                        timestamp_ms    = int(
+                            datetime.now().timestamp() * 1000
+                        ),
+                        process_id      = dominant_pid
+                    )
+                    continue
 
                 # Step 1 — Check hard tripwires first
                 tripwire_result = self.tripwires.check(events)
@@ -123,19 +141,31 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                     # Mark agent as isolated — no more processing
                     isolated_agents.add(agent_id)
 
+                    # Calculate response time
+                    response_ms = int(
+                        (datetime.now() - window_received).total_seconds() * 1000
+                    )
+
                     logger.warning(
                         f"[{agent_id}] TRIPWIRE triggered: "
                         f"{tripwire_result['reason']} | "
-                        f"PID={dominant_pid}"
+                        f"Process={dominant_proc} | "
+                        f"PID={dominant_pid} | "
+                        f"ResponseTime={response_ms}ms"
                     )
+
                     self.alert_service.send_alert(
-                        agent_id   = agent_id,
-                        session_id = session_id,
-                        decision   = "ISOLATE",
-                        confidence = 1.0,
-                        reason     = f"Tripwire: {tripwire_result['reason']}",
-                        mitre      = "T1486"
+                        agent_id          = agent_id,
+                        session_id        = session_id,
+                        decision          = "ISOLATE",
+                        confidence        = 1.0,
+                        reason            = f"Tripwire: {tripwire_result['reason']}",
+                        mitre             = "T1486",
+                        process_name      = dominant_proc,
+                        process_pid       = dominant_pid,
+                        detection_time_ms = response_ms
                     )
+
                     yield pb2.DetectionResult(
                         session_id      = session_id,
                         confidence      = 1.0,
@@ -147,29 +177,39 @@ class NESRDServicer(pb2_grpc.NESRDServiceServicer):
                     )
                     continue
 
-                # Step 2 — Run fusion engine
+                # Step 2 — Run fusion engine (ML)
                 decision, confidence, reason = self.fusion.decide(events)
 
                 # Mark as isolated if ML triggers ISOLATE
                 if decision == "ISOLATE":
                     isolated_agents.add(agent_id)
 
+                # Calculate response time
+                response_ms = int(
+                    (datetime.now() - window_received).total_seconds() * 1000
+                )
+
                 logger.info(
                     f"[{agent_id}] Decision={decision} | "
                     f"Confidence={confidence:.3f} | "
                     f"Reason={reason} | "
-                    f"PID={dominant_pid}"
+                    f"Process={dominant_proc or 'unknown'} | "
+                    f"PID={dominant_pid} | "
+                    f"ResponseTime={response_ms}ms"
                 )
 
                 # Step 3 — Send alert if not LOG
                 if decision != "LOG":
                     self.alert_service.send_alert(
-                        agent_id   = agent_id,
-                        session_id = session_id,
-                        decision   = decision,
-                        confidence = confidence,
-                        reason     = reason,
-                        mitre      = "T1486"
+                        agent_id          = agent_id,
+                        session_id        = session_id,
+                        decision          = decision,
+                        confidence        = confidence,
+                        reason            = reason,
+                        mitre             = "T1486",
+                        process_name      = dominant_proc,
+                        process_pid       = dominant_pid,
+                        detection_time_ms = response_ms
                     )
 
                 # Step 4 — Yield result back to agent

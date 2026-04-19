@@ -24,6 +24,10 @@ ALLOWLISTED_PROCESSES = {
     "onedrive.exe",
     "dropbox.exe",
     "googledrivefs.exe",
+    "msedge.exe",
+    "chrome.exe",
+    "firefox.exe",
+    "brave.exe",
 }
 
 # System-owned paths that legitimate Windows processes rename files in

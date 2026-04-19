@@ -84,15 +84,15 @@ def watch_alerts():
 
                     new_alerts = []
                     with state_lock:
-                        state["alerts"]                        = list(reversed(alerts))[:200]
-                        state["stats"]["total_alerts"]         = total
-                        state["stats"]["total_isolations"]     = isolations
-                        state["stats"]["total_alerts_only"]    = alert_only
+                        state["alerts"]                     = list(reversed(alerts))[:200]
+                        state["stats"]["total_alerts"]      = total
+                        state["stats"]["total_isolations"]  = isolations
+                        state["stats"]["total_alerts_only"] = alert_only
                         if total > _last_alerts_count:
                             new_alerts         = alerts[_last_alerts_count:]
                             _last_alerts_count = total
 
-                    # Emit outside the lock to avoid deadlock
+                    # Emit outside lock to avoid deadlock
                     for alert in new_alerts:
                         socketio.emit("new_alert", alert)
 
@@ -121,6 +121,15 @@ def _extract(text, start, end):
 def watch_log():
     """Tail the manager log and parse decisions, heartbeats, connections."""
     global _log_position
+
+    # FIX: On startup seek to end of log so we only tail NEW entries.
+    # Without this, every dashboard restart replays the entire log
+    # history into live_feed, flooding it with stale data.
+    if os.path.exists(LOG_FILE):
+        try:
+            _log_position = os.path.getsize(LOG_FILE)
+        except Exception:
+            pass
 
     while True:
         try:
@@ -253,6 +262,7 @@ def api_state():
 # ── SocketIO events ────────────────────────────────────────────────────────
 @socketio.on("connect")
 def on_connect():
+    # Build payload inside lock, emit outside to avoid deadlock
     with state_lock:
         payload = {
             "agents":    list(state["agents"].values()),
@@ -292,6 +302,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   * { margin:0; padding:0; box-sizing:border-box; }
 
+  html { background: var(--bg); min-height: 100%; }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -299,6 +311,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     font-size: 14px;
     min-height: 100vh;
     overflow-x: hidden;
+    background-attachment: fixed;
   }
 
   body::before {
@@ -340,11 +353,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     color:var(--accent); text-shadow:0 0 20px rgba(0,212,255,0.5);
   }
 
-  .logo p { font-size:10px; color:var(--text2); letter-spacing:2px; font-family:var(--mono); text-transform:uppercase; }
+  .logo p {
+    font-size:10px; color:var(--text2);
+    letter-spacing:2px; font-family:var(--mono); text-transform:uppercase;
+  }
 
   .header-right { display:flex; align-items:center; gap:24px; }
 
-  .status-dot { display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--green); }
+  .status-dot {
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:12px; color:var(--green);
+  }
 
   .dot {
     width:8px; height:8px; border-radius:50%;
@@ -361,13 +380,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     padding:6px 28px; background:var(--bg3); border-bottom:1px solid var(--border);
   }
 
-  .threat-label { font-size:10px; font-family:var(--mono); color:var(--text2); letter-spacing:1px; flex-shrink:0; }
+  .threat-label {
+    font-size:10px; font-family:var(--mono);
+    color:var(--text2); letter-spacing:1px; flex-shrink:0;
+  }
 
   .threat-track { flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
 
   .threat-fill { height:100%; border-radius:2px; transition:width 0.8s ease, background 0.5s ease; }
 
-  .threat-value { font-family:var(--mono); font-size:11px; color:var(--accent); flex-shrink:0; min-width:36px; text-align:right; }
+  .threat-value {
+    font-family:var(--mono); font-size:11px; color:var(--accent);
+    flex-shrink:0; min-width:36px; text-align:right;
+  }
 
   .container {
     padding:20px 28px;
@@ -389,7 +414,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .stat-card.yellow::before { background:linear-gradient(90deg,transparent,var(--yellow),transparent); }
   .stat-card.red::before    { background:linear-gradient(90deg,transparent,var(--red),transparent); }
 
-  .stat-label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--text2); font-family:var(--mono); margin-bottom:8px; }
+  .stat-label {
+    font-size:10px; letter-spacing:2px; text-transform:uppercase;
+    color:var(--text2); font-family:var(--mono); margin-bottom:8px;
+  }
 
   .stat-value { font-size:42px; font-weight:700; line-height:1; font-family:var(--mono); }
 
@@ -408,7 +436,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     background:rgba(0,212,255,0.03);
   }
 
-  .panel-title { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent); font-family:var(--mono); display:flex; align-items:center; gap:8px; }
+  .panel-title {
+    font-size:11px; letter-spacing:2px; text-transform:uppercase;
+    color:var(--accent); font-family:var(--mono);
+    display:flex; align-items:center; gap:8px;
+  }
   .panel-title::before { content:'//'; color:var(--text2); }
 
   .panel-body { padding:12px; }
@@ -432,7 +464,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .agent-id   { font-family:var(--mono); font-size:13px; color:var(--text); }
   .agent-meta { font-size:11px; color:var(--text2); font-family:var(--mono); margin-top:2px; }
 
-  .agent-badge { font-size:10px; font-family:var(--mono); letter-spacing:1px; padding:3px 8px; border-radius:2px; text-transform:uppercase; }
+  .agent-badge {
+    font-size:10px; font-family:var(--mono);
+    letter-spacing:1px; padding:3px 8px;
+    border-radius:2px; text-transform:uppercase;
+  }
   .agent-badge.active   { background:rgba(0,255,136,0.1);  color:var(--green); border:1px solid rgba(0,255,136,0.3); }
   .agent-badge.isolated { background:rgba(255,51,85,0.1);  color:var(--red);   border:1px solid rgba(255,51,85,0.3); }
   .agent-badge.offline  { background:rgba(104,136,168,0.1);color:var(--text2); border:1px solid var(--border); }
@@ -449,7 +485,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   @keyframes slide-in { from{opacity:0;transform:translateX(8px);} to{opacity:1;transform:translateX(0);} }
 
-  .feed-badge { font-size:10px; letter-spacing:1px; padding:2px 6px; border-radius:2px; flex-shrink:0; margin-top:1px; }
+  .feed-badge {
+    font-size:10px; letter-spacing:1px;
+    padding:2px 6px; border-radius:2px; flex-shrink:0; margin-top:1px;
+  }
   .feed-badge.LOG     { background:rgba(104,136,168,0.15); color:var(--text2); }
   .feed-badge.ALERT   { background:rgba(255,204,0,0.15);   color:var(--yellow); border:1px solid rgba(255,204,0,0.3); }
   .feed-badge.ISOLATE { background:rgba(255,51,85,0.15);   color:var(--red);    border:1px solid rgba(255,51,85,0.4); }
@@ -493,10 +532,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .scrollable::-webkit-scrollbar-track { background:transparent; }
   .scrollable::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
 
-  .empty-state { padding:32px; text-align:center; color:var(--text2); font-family:var(--mono); font-size:12px; }
+  .empty-state {
+    padding:32px; text-align:center;
+    color:var(--text2); font-family:var(--mono); font-size:12px;
+  }
 
-  @keyframes flash-red    { 0%{background:rgba(255,51,85,0.18);} 100%{background:transparent;} }
-  @keyframes flash-yellow { 0%{background:rgba(255,204,0,0.12);} 100%{background:transparent;} }
+  @keyframes flash-red    { 0%{background:rgba(255,51,85,0.18);}  100%{background:transparent;} }
+  @keyframes flash-yellow { 0%{background:rgba(255,204,0,0.12);}  100%{background:transparent;} }
   .flash-red    { animation:flash-red    0.6s ease forwards; }
   .flash-yellow { animation:flash-yellow 0.6s ease forwards; }
 </style>
@@ -598,13 +640,13 @@ let alerts   = [];
 let liveFeed = [];
 let stats    = { total_alerts:0, total_isolations:0, total_alerts_only:0 };
 
-// Clock
+// ── Clock ──────────────────────────────────────────────────────────────────
 setInterval(() => {
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString('en-GB');
 }, 1000);
 
-// Chart
+// ── Chart ──────────────────────────────────────────────────────────────────
 const ctx = document.getElementById('timeline-chart').getContext('2d');
 const chart = new Chart(ctx, {
   type: 'line',
@@ -629,8 +671,10 @@ const chart = new Chart(ctx, {
 
 let cLog = 0, cAlert = 0, cIsolate = 0;
 
-function pushChart(decision) {
-  const label = new Date().toLocaleTimeString('en-GB');
+// FIX: Accept optional timeLabel so historical replay uses real timestamps
+// instead of current time, keeping chart accurate after page refresh.
+function pushChart(decision, timeLabel) {
+  const label = timeLabel || new Date().toLocaleTimeString('en-GB');
   if (decision === 'LOG')     cLog++;
   if (decision === 'ALERT')   cAlert++;
   if (decision === 'ISOLATE') cIsolate++;
@@ -654,6 +698,7 @@ function pushChart(decision) {
   chart.update('none');
 }
 
+// ── Renderers ──────────────────────────────────────────────────────────────
 function renderAgents() {
   const arr = Object.values(agents);
   document.getElementById('stat-agents').textContent = arr.length;
@@ -725,15 +770,19 @@ function renderAlerts() {
       + '<span class="alert-conf" style="color:' + confColor + '">' + conf + '</span>'
       + '</div>'
       + '<div class="alert-reason">' + (a.reason || '&mdash;') + '</div>'
+      + (a.process_name ? '<div class="alert-time" style="color:var(--accent2)">&#9654; '
+          + a.process_name + ' (PID ' + a.process_pid + ')'
+          + ' &nbsp;&middot;&nbsp; ' + (a.detection_time_ms || 0) + 'ms response'
+          + '</div>' : '')
       + '<div class="alert-time">' + (a.timestamp || '') + '</div>'
       + '</div></div>';
   }).join('');
 }
 
 function renderStats() {
-  const total    = stats.total_alerts      || 0;
-  const isolated = stats.total_isolations  || 0;
-  const alertOnly= stats.total_alerts_only || 0;
+  const total     = stats.total_alerts      || 0;
+  const isolated  = stats.total_isolations  || 0;
+  const alertOnly = stats.total_alerts_only || 0;
 
   document.getElementById('stat-total').textContent    = total;
   document.getElementById('stat-alerts').textContent   = alertOnly;
@@ -748,12 +797,12 @@ function renderStats() {
 
 function flash(decision) {
   document.body.classList.remove('flash-red', 'flash-yellow');
-  void document.body.offsetWidth;
+  void document.body.offsetWidth; // force reflow to restart animation
   if (decision === 'ISOLATE')    document.body.classList.add('flash-red');
   else if (decision === 'ALERT') document.body.classList.add('flash-yellow');
 }
 
-// Socket events
+// ── Socket events ──────────────────────────────────────────────────────────
 socket.on('init', data => {
   agents   = {};
   (data.agents || []).forEach(a => { agents[a.id] = a; });
@@ -761,6 +810,11 @@ socket.on('init', data => {
   liveFeed = data.live_feed || [];
   stats    = data.stats     || stats;
   renderAgents(); renderFeed(); renderAlerts(); renderStats();
+
+  // FIX: Pre-populate chart from history using real timestamps
+  // so the graph survives page refresh correctly
+  const reversed = [...liveFeed].reverse();
+  reversed.forEach(e => pushChart(e.decision, (e.time || '').substring(11,19)));
 });
 
 socket.on('live_decision', entry => {
@@ -773,13 +827,15 @@ socket.on('live_decision', entry => {
     agents[entry.agent].decisions = (agents[entry.agent].decisions || 0) + 1;
     if (entry.decision === 'ISOLATE') agents[entry.agent].status = 'isolated';
   }
-  renderFeed(); renderAgents(); pushChart(entry.decision);
+  renderFeed(); renderAgents();
+  // Pass real timestamp to chart
+  pushChart(entry.decision, (entry.time || '').substring(11,19));
 });
 
 socket.on('new_alert', alert => {
   alerts.unshift(alert);
   if (alerts.length > 200) alerts.pop();
-  // Recompute from source of truth
+  // Recompute stats from source of truth
   stats.total_alerts      = alerts.length;
   stats.total_isolations  = alerts.filter(a => a.decision === 'ISOLATE').length;
   stats.total_alerts_only = alerts.filter(a => a.decision === 'ALERT').length;
