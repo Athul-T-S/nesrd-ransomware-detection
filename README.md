@@ -5,7 +5,6 @@ A production-grade, real-time ransomware detection and response system built as 
 NESRD detects ransomware at the **early stage** — before significant file damage occurs — using kernel-level ETW event collection, machine learning, and deterministic tripwires. When ransomware is detected, the system automatically kills the malicious process and isolates the endpoint from the network.
 
 ---
-<iframe style="border: 1px solid rgba(0, 0, 0, 0.1);" width="800" height="450" src="https://embed.figma.com/board/6durRKhIUVhH02LvdF9uAV/NESRD-Architecture-Map?node-id=0-1&embed-host=share" allowfullscreen></iframe>
 
 ## Architecture
 Windows VM (Agent)                    Host Machine (Manager)
